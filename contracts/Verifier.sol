@@ -5,8 +5,10 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./lib/GenesisUtils.sol";
 import "./interfaces/ICircuitValidator.sol";
 import "./verifiers/ZKPVerifier.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract Verifier is ZKPVerifier {
+    using ECDSA for bytes32;
     uint64 public constant TRANSFER_REQUEST_ID = 1;
 
     mapping(address => bool) allowed;
@@ -14,7 +16,18 @@ contract Verifier is ZKPVerifier {
     mapping(uint256 => uint256) timestamp;
     mapping(address => uint128) ids;
     address private _issuerAddress;
-    uint256 public noOfUsers = 0;
+    address public ownerAddress;
+    uint128 public noOfUsers = 0;
+
+    constructor() {
+        _issuerAddress = _msgSender();
+        ownerAddress = _msgSender();
+    }
+
+    modifier onlyAdmin() {
+        require(msg.sender == ownerAddress, "only admin");
+        _;
+    }
 
     function _beforeProofSubmit(
         uint64, /* requestId */
@@ -40,13 +53,11 @@ contract Verifier is ZKPVerifier {
         digest = digest.toEthSignedMessageHash();
         address signer = ECDSA.recover(digest, signature);
         require(signer == ownerAddress, "Invalid signature");
-        require(block.timestamp <= _deadline, "Signature expired");
-        require(_user == msg.sender, "Invalid user");
         _;
     }
 
-    function setIssuerAddress(address _issuerAddress) public onlyAdmin {
-        issuerAddress = _issuerAddress;
+    function setIssuerAddress(address issuerAddress) public onlyAdmin {
+        _issuerAddress = issuerAddress;
     }
 
     function _afterProofSubmit(
@@ -61,8 +72,8 @@ contract Verifier is ZKPVerifier {
 
         uint256 id = inputs[validator.getChallengeInputIndex()];
 
-        if (allowed[_msgSender()] == 0) {
-            allowed[_msgSender()] = 1;
+        if (allowed[_msgSender()] == false) {
+            allowed[_msgSender()] = true;
         }
     }
 
@@ -72,10 +83,10 @@ contract Verifier is ZKPVerifier {
         bytes memory signature
     ) external verify(signature, application, _amount) {
         require(
-            allowed[_msgSender()] == 1,
+            allowed[_msgSender()] == true,
             "You're not allowed to access this function"
         );
-        allowed[_msgSender()] = 0;
+        allowed[_msgSender()] = false;
         if (ids[_msgSender()] == 0) {
             ids[_msgSender()] = noOfUsers;
             noOfUsers++;
